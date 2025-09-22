@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Rastreo GPS</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Enlace a la hoja de estilo de Leaflet (librería de mapas) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    /* Estilo para el mapa, que ocupa toda la altura y el ancho de la página */
+    #map { height: 100vh; width: 100%; }
+  </style>
+</head>
+<body>
+  <!-- Título en el centro de la página -->
+  <h2 style="text-align:center;">Seguimiento de Alex Berrios Thea (215781)</h2>
+  
+  <!-- Div para el mapa -->
+  <div id="map"></div>
+
+  <!-- Script para cargar la librería Leaflet -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Inicializamos el mapa, centrado en las coordenadas [0, 0] (latitud, longitud)
+    var map = L.map('map').setView([0, 0], 2);
+
+    // Añadimos la capa base del mapa (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    // Creamos una polilínea vacía para trazar las rutas de los dispositivos
+    var polyline = L.polyline([], {color: 'red'}).addTo(map);
+    
+    // Objetos para almacenar los marcadores de los dispositivos y los puntos anteriores
+    var markers = {};
+    var currentMarkers = {};
+    var firstUpdate = true;  // Indicador para centrar el mapa en el primer update
+
+    // Opciones de estilo para los círculos de puntos pasados
+    var darkGreyCircleOptions = { color: '#555', fillColor: '#555', fillOpacity: 0.6, radius: 6 };
+
+    // Colores para representar a diferentes usuarios
+    var userColors = [ 'blue', 'green', 'purple', 'orange', 'red', 'cyan', 'yellow', 'brown', 'pink', 'violet', 'indigo' ];
+
+    // Función para obtener un color para cada usuario basado en su código
+    function getUserColor(deviceCode) {
+      const index = parseInt(deviceCode, 36) % userColors.length;  // Usamos el código del dispositivo para obtener un color
+      return userColors[index];
+    }
+
+    // Función para obtener las ubicaciones de los dispositivos desde el backend
+    async function fetchLocations() {
+      try {
+        // Hacemos una solicitud al endpoint '/location' del backend de Spring Boot
+        let response = await fetch('/location'); 
+        let data = await response.json();  // Parseamos la respuesta como JSON
+
+        if (data.length > 0) {
+          // Limpiamos los marcadores y líneas anteriores antes de actualizar el mapa
+          Object.values(currentMarkers).forEach(marker => map.removeLayer(marker));
+          Object.values(markers).forEach(marker => map.removeLayer(marker));
+          polyline.setLatLngs([]);
+
+          // Agrupamos los datos por dispositivo (según el código del dispositivo)
+          let devices = {};
+          data.forEach(p => {
+            if (!devices[p.code]) devices[p.code] = [];
+            devices[p.code].push(p);
+          });
+
+          // Dibujamos las rutas y los puntos de cada dispositivo
+          Object.keys(devices).forEach(deviceCode => {
+            const deviceData = devices[deviceCode];
+            const userColor = getUserColor(deviceCode);  // Obtenemos el color para este dispositivo
+
+            // Dibujamos la polilínea (ruta) del dispositivo
+            let devicePolyline = L.polyline(deviceData.map(p => [p.lat, p.lng]), {color: userColor}).addTo(map);
+
+            // Dibujamos los puntos anteriores (circulitos grises)
+            deviceData.slice(0, -1).forEach(p => {
+              let circle = L.circleMarker([p.lat, p.lng], darkGreyCircleOptions).addTo(map);
+              circle.bindPopup(
+                `<b>Usuario:</b> ${p.name}<br/>
+                 <b>Código:</b> ${p.code}<br/>
+                 <b>Ubicación:</b> ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}<br/>
+                 <b>Velocidad:</b> ${p.speedKmh ?? 0} km/h<br/>
+                 <b>Accel:</b> X=${p.accelX ?? 0}, Y=${p.accelY ?? 0}, Z=${p.accelZ ?? 0}<br/>
+                 <b>Pasos:</b> 🏃 ${p.steps ?? 0}`
+              );
+              markers[`${deviceCode}-${p.timestamp ?? Math.random()}`] = circle;  // Guardamos el marcador
+            });
+
+            // Dibujamos el último punto como un marcador colorido
+            let last = deviceData[deviceData.length - 1];
+            if (currentMarkers[deviceCode]) map.removeLayer(currentMarkers[deviceCode]);  // Removemos el marcador anterior
+
+            // Creamos un icono personalizado para el marcador del último punto
+            const markerIcon = L.icon({
+              iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${userColor}.png`,
+              shadowUrl: 'https://unpkg.com/leaflet/dist/images/marker-shadow.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34],
+              shadowSize: [41, 41]
+            });
+
+            // Añadimos el marcador al mapa
+            currentMarkers[deviceCode] = L.marker([last.lat, last.lng], {icon: markerIcon}).addTo(map);
+            currentMarkers[deviceCode].bindPopup(
+              `<b>Usuario:</b> ${last.name}<br/>
+               <b>Código:</b> ${last.code}<br/>
+               <b>Ubicación:</b> ${last.lat.toFixed(6)}, ${last.lng.toFixed(6)}<br/>
+               <b>Velocidad:</b> ${last.speedKmh ?? 0} km/h<br/>
+               <b>Accel:</b> X=${last.accelX ?? 0}, Y=${last.accelY ?? 0}, Z=${last.accelZ ?? 0}<br/>
+               <b>Pasos:</b> 🏃 ${last.steps ?? 0}`
+            );
+
+            // Centrar el mapa en el primer update
+            if (firstUpdate) {
+              map.setView([last.lat, last.lng], 15);  // Centrado en el último punto
+              firstUpdate = false;
+            }
+          });
+        }
+      } catch (err) {
+        console.error("Error obteniendo ubicaciones:", err);  // Manejo de errores si falla la solicitud
+      }
+    }
+
+    // Llamamos a la función `fetchLocations` para obtener las ubicaciones al cargar la página
+    fetchLocations();
+    
+    // Actualizamos las ubicaciones cada 5 segundos
+    setInterval(fetchLocations, 5000);
+  </script>
+</body>
+</html>
+
