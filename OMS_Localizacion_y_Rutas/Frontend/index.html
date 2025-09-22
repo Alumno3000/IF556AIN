@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Rastreo GPS — Alex Berrios Thea (215781)</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <!-- Leaflet Routing Machine -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <!-- Simple styles for UI -->
+  <style>
+    :root{
+      --sidebar-w: 360px;
+      --accent: #1e88e5;
+      --muted: #666;
+      --card-bg: #fff;
+      --shadow: 0 6px 18px rgba(0,0,0,0.08);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%; margin:0; background:#f3f5f7;}
+    #app{display:flex; height:100vh; gap:12px;}
+    /* Sidebar */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: 260px;
+      background: var(--card-bg);
+      box-shadow: var(--shadow);
+      border-radius: 10px;
+      padding: 14px;
+      margin: 12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    h2{margin:0 0 6px 0; font-size:16px;}
+    .muted{color:var(--muted); font-size:13px;}
+    #map { flex:1; border-radius:10px; margin:12px 12px 12px 0; box-shadow:var(--shadow); }
+    .controls { display:flex; gap:8px; align-items:center; }
+    input[type="text"], select {
+      width:100%;
+      padding:8px 10px;
+      border:1px solid #e0e0e0;
+      border-radius:8px;
+      font-size:14px;
+      box-sizing:border-box;
+    }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding:8px 10px;
+      border-radius:8px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    button.secondary { background:#eee; color:#222; font-weight:600; }
+    .section { background:#fafafa; padding:8px; border-radius:8px; border:1px solid #f0f0f0; }
+    .objects-list { max-height:200px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+    .obj-item { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:6px; background:white; border-radius:6px; border:1px solid #f0f0f0; }
+    .small { font-size:13px; color:var(--muted); }
+    .instructions { max-height:160px; overflow:auto; font-size:13px; padding:6px; background:white; border-radius:6px; border:1px solid #f0f0f0; }
+    .row { display:flex; gap:8px; }
+    .controls-row { display:flex; gap:6px; }
+    .footer { font-size:12px; color:#999; margin-top:auto; text-align:center; }
+    a.link { color:var(--accent); text-decoration:none; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div>
+        <h2>Seguimiento — Alex Berrios Thea (215781)</h2>
+        <div class="muted">Busca lugares, obtiene coordenadas, crea objetos y calcula rutas.</div>
+      </div>
+
+      <!-- Search / Geocoder -->
+      <div class="section">
+        <label class="small">Buscar dirección o lugar</label>
+        <div class="controls" style="margin-top:6px;">
+          <input id="geosearch" placeholder="Escribe una dirección o nombre (ej: Plaza San Martín, Lima)" />
+          <button id="btnSearch">Buscar</button>
+        </div>
+        <div class="small" style="margin-top:6px;">Resultados: <span id="searchCount">0</span></div>
+        <div id="searchResults" style="margin-top:6px; max-height:120px; overflow:auto;"></div>
+      </div>
+
+      <!-- Objects (coordenadas) -->
+      <div class="section">
+        <label class="small">Objetos (haz click en el mapa para añadir)</label>
+        <div class="muted" style="margin:6px 0;">Lista de objetos guardados. Haz click en uno para centrar y copiar coordenadas.</div>
+        <div class="objects-list" id="objectsList"></div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button id="btnExport">Exportar CSV</button>
+          <button class="secondary" id="btnClearObjects">Limpiar</button>
+        </div>
+      </div>
+
+      <!-- Routing -->
+      <div class="section">
+        <label class="small">Planificador de rutas / Navegación</label>
+        <div class="row" style="margin-top:6px;">
+          <input id="routeFrom" placeholder="Desde (dirección o click en mapa)" />
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <input id="routeTo" placeholder="Hasta (dirección o click en mapa)" />
+        </div>
+        <div class="controls-row" style="margin-top:8px;">
+          <button id="btnRoute">Calcular ruta</button>
+          <button class="secondary" id="btnClearRoute">Borrar ruta</button>
+          <button class="secondary" id="btnFollow">Seguir usuario</button>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="small">Instrucciones:</div>
+          <div class="instructions" id="routeInstructions">Sin ruta calculada.</div>
+        </div>
+      </div>
+
+      <!-- Quick controls -->
+      <div class="section">
+        <div style="display:flex; gap:8px;">
+          <button id="btnLocate">Mi ubicación</button>
+          <button id="btnCenterAll" class="secondary">Mostrar todos</button>
+        </div>
+        <div style="margin-top:8px;">
+          <label class="small">Actualizar ubicaciones del backend</label>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button id="btnRefresh">Obtener /location</button>
+            <input id="refreshInterval" type="number" min="0" placeholder="segundos (0 off)" style="width:120px;" />
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">Hecho con OpenStreetMap · Leaflet · OSRM</div>
+    </aside>
+
+    <!-- Map -->
+    <div id="map"></div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Geocoder control (Nominatim) -->
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <!-- Leaflet Routing Machine -->
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
+  <script>
+    // ===== Inicialización del mapa =====
+    var map = L.map('map').setView([-13.53195, -71.967463], 13); // Cusco por defecto
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Variables globales
+    var objects = []; // {id, name, lat, lng, createdAt}
+    var objectMarkers = {};
+    var lastClicked = null;
+    var routingControl = null;
+    var followMode = false;
+    var backendRefreshTimer = null;
+
+    // Iconos por colores (reusable)
+    function markerIcon(color) {
+      return L.icon({
+        iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+        shadowUrl: 'https://unpkg.com/leaflet/dist/images/marker-shadow.png',
+        iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+      });
+    }
+
+    // ===== Geocoding (búsqueda) =====
+    var geocoder = L.Control.Geocoder.nominatim(); // Nominatim por defecto
+
+ 
+
+    async function searchPlace(query) {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5`;
+        try {
+          const resp = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+          const data = await resp.json();
+          const container = document.getElementById('searchResults');
+          container.innerHTML = '';
+          if (!data.length) {
+            container.innerHTML = '<div class="small muted">No se encontraron resultados</div>';
+            document.getElementById('searchCount').textContent = '0';
+            return;
+          }
+          document.getElementById('searchCount').textContent = data.length;
+
+          data.forEach((r, i) => {
+            const displayName = r.display_name;
+            const el = document.createElement('div');
+            el.style.padding = '6px';
+            el.style.borderBottom = '1px solid #f0f0f0';
+            el.style.cursor = 'pointer';
+            el.innerHTML = `<b>${displayName}</b><div class="small">${r.lat}, ${r.lon}</div>`;
+            el.onclick = () => {
+              const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+              map.setView([lat, lng], 16);
+              const m = L.marker([lat, lng]).addTo(map);
+              m.bindPopup(`<b>${displayName}</b><br/>
+                <button onclick="addObjectFromSearch(${lat}, ${lng}, '${escapeHtml(displayName)}')">Guardar objeto</button>`).openPopup();
+              setTimeout(() => map.removeLayer(m), 10000);
+            };
+            container.appendChild(el);
+          });
+        } catch (err) {
+          console.error("Error al buscar:", err);
+        }
+      }
+
+
+    // Helper para escapar comillas en popup
+    function escapeHtml(text){
+      return text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // Permitir buscar con Enter
+        document.getElementById('btnSearch').addEventListener('click', function(){
+      const q = document.getElementById('geosearch').value.trim();
+      if(q) searchPlace(q);
+    });
+
+    // ===== Añadir objetos al hacer click en mapa =====
+    map.on('click', function(e){
+      const lat = e.latlng.lat, lng = e.latlng.lng;
+      lastClicked = e.latlng;
+      const name = prompt('Nombre del objeto (ej: Caja, Poste, Cliente 123):', 'Objeto ' + (objects.length + 1));
+      if(name === null) return; // cancel
+      addObject(name, lat, lng);
+    });
+
+    function addObject(name, lat, lng){
+      const id = 'obj-' + Date.now() + '-' + Math.floor(Math.random()*1000);
+      const obj = { id, name, lat: +lat, lng: +lng, createdAt: new Date().toISOString() };
+      objects.push(obj);
+      renderObjects();
+      addMarkerForObject(obj);
+    }
+
+    // Añadir objeto desde búsqueda (se llama desde popup html)
+    window.addObjectFromSearch = function(lat, lng, nameEscaped){
+      const name = nameEscaped || ('Lugar ' + (objects.length+1));
+      addObject(name, lat, lng);
+      // cerrar popups abiertas
+      map.closePopup();
+    };
+
+    function addMarkerForObject(obj){
+      const m = L.marker([obj.lat, obj.lng], { icon: markerIcon('blue') }).addTo(map);
+      m.bindPopup(`<b>${obj.name}</b><br/><small>${obj.lat.toFixed(6)}, ${obj.lng.toFixed(6)}</small><br/><button onclick="centerAndCopy('${obj.id}')">Centrar & Copiar</button> <button onclick="removeObject('${obj.id}')">Eliminar</button>`);
+      objectMarkers[obj.id] = m;
+    }
+
+    // Renderizar lista en sidebar
+    function renderObjects(){
+      const list = document.getElementById('objectsList');
+      list.innerHTML = '';
+      objects.forEach(o => {
+        const el = document.createElement('div');
+        el.className = 'obj-item';
+        el.innerHTML = `<div style="flex:1;">
+                          <div style="font-weight:600">${o.name}</div>
+                          <div class="small">${o.lat.toFixed(6)}, ${o.lng.toFixed(6)}</div>
+                        </div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                          <button onclick="centerAndCopy('${o.id}')">Ir</button>
+                          <button class="secondary" onclick="removeObject('${o.id}')">X</button>
+                        </div>`;
+        list.appendChild(el);
+      });
+    }
+
+    // Center and copy coords
+    window.centerAndCopy = function(id){
+      const o = objects.find(x => x.id === id);
+      if(!o) return;
+      map.setView([o.lat, o.lng], 17);
+      if(objectMarkers[id]) objectMarkers[id].openPopup?.();
+      // copy to clipboard
+      const text = `${o.lat.toFixed(6)},${o.lng.toFixed(6)}`;
+      navigator.clipboard?.writeText(text).then(()=> alert('Coordenadas copiadas: ' + text)).catch(()=> alert('Copia manual: ' + text));
+    };
+
+    window.removeObject = function(id){
+      // eliminar marcador y elemento
+      objects = objects.filter(x => x.id !== id);
+      if(objectMarkers[id]) map.removeLayer(objectMarkers[id]);
+      delete objectMarkers[id];
+      renderObjects();
+    };
+
+    document.getElementById('btnExport').addEventListener('click', function(){
+      if(objects.length === 0){ alert('No hay objetos para exportar.'); return; }
+      const csv = ['id,name,lat,lng,createdAt', ...objects.map(o => `${o.id},"${o.name.replace(/"/g,'""')}",${o.lat},${o.lng},${o.createdAt}`)].join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'objetos_gps.csv'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btnClearObjects').addEventListener('click', function(){
+      if(!confirm('Eliminar todos los objetos?')) return;
+      objects = [];
+      Object.keys(objectMarkers).forEach(k => map.removeLayer(objectMarkers[k]));
+      objectMarkers = {};
+      renderObjects();
+    });
+
+    // ===== Rutas y navegación =====
+    function clearRoute(){
+      if(routingControl){ map.removeControl(routingControl); routingControl = null; }
+      document.getElementById('routeInstructions').textContent = 'Sin ruta calculada.';
+      // also remove any temporary route markers (routingControl does)
+    }
+
+    document.getElementById('btnClearRoute').addEventListener('click', clearRoute);
+
+    document.getElementById('btnRoute').addEventListener('click', async function(){
+      const fromText = document.getElementById('routeFrom').value.trim();
+      const toText = document.getElementById('routeTo').value.trim();
+      if(!fromText || !toText){ alert('Completa "Desde" y "Hasta" con dirección, coordenadas o usa los objetos.'); return; }
+      // Try to interpret input: if contains comma numbers => lat,lng
+      const fromCoord = parseLatLng(fromText);
+      const toCoord = parseLatLng(toText);
+      if(fromCoord && toCoord){
+        calculateRoute(fromCoord, toCoord);
+        return;
+      }
+
+      // Else geocode both
+      const fromRes = await geocodeText(fromText);
+      const toRes = await geocodeText(toText);
+      if(!fromRes || !toRes){ alert('No se pudieron geocodificar una o ambas direcciones.'); return; }
+      calculateRoute(fromRes, toRes);
+    });
+
+    // Parse "lat,lng" input (e.g., "-12.0464,-77.0428")
+    function parseLatLng(text){
+      const m = text.match(/(-?\d+(\.\d+)?)[ ,]+(-?\d+(\.\d+)?)/);
+      if(!m) return null;
+      return L.latLng(parseFloat(m[1]), parseFloat(m[3]));
+    }
+
+    function geocodeText(text){
+      return new Promise((resolve) => {
+        geocoder.geocode(text, function(results){
+          if(!results || results.length===0) return resolve(null);
+          resolve(results[0].center);
+        });
+      });
+    }
+
+    // Usamos Leaflet Routing Machine con el servidor público OSRM (demo)
+    function calculateRoute(fromLatLng, toLatLng){
+      clearRoute();
+      routingControl = L.Routing.control({
+        waypoints: [ fromLatLng, toLatLng ],
+        router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+        showAlternatives: false,
+        fitSelectedRoutes: true,
+        lineOptions: { styles: [{color: '#1e88e5', opacity:0.9, weight:6}] },
+        createMarker: function(i, wp, n) {
+          const icon = i===0 ? markerIcon('green') : markerIcon('red');
+          return L.marker(wp.latLng, { icon: icon });
+        }
+      }).addTo(map);
+
+      // Mostrar instrucciones y distancia/tiempo
+      routingControl.on('routesfound', function(e){
+        const routes = e.routes;
+        if(!routes || routes.length === 0) return;
+        const summary = routes[0].summary;
+        const distKm = (summary.totalDistance/1000).toFixed(2);
+        const durMin = Math.round(summary.totalTime/60);
+        let html = `<div style="font-weight:700">Distancia: ${distKm} km · Duración aprox: ${durMin} min</div><ol style="padding-left:14px;margin-top:6px;">`;
+        const instructions = routes[0].instructions || routes[0].instructions; // compatibility
+        // Leaflet Routing Machine provides instructions via routes[0].instructions or via e.routes[0].segments
+        // We'll use the provided instructions if available
+        if(routes[0].instructions && routes[0].instructions.length){
+          routes[0].instructions.forEach(ins => { html += `<li>${ins.text} <span class="small">(${(ins.distance/1000).toFixed(2)} km)</span></li>`; });
+        } else if(routes[0].instructions === undefined && routes[0].segments){
+          // fallback
+          routes[0].segments.forEach(seg=>{
+            if(seg.steps) seg.steps.forEach(s => html += `<li>${s.instruction} <span class="small">(${(s.distance/1000).toFixed(2)} km)</span></li>`);
+          });
+        } else {
+          html += '<li>Instrucciones no disponibles desde el servidor de rutas.</li>';
+        }
+        html += '</ol>';
+        document.getElementById('routeInstructions').innerHTML = html;
+      });
+
+      routingControl.on('routingerror', function(err){
+        document.getElementById('routeInstructions').textContent = 'Error al calcular la ruta: ' + (err?.error?.message || err);
+      });
+    }
+
+    // 'Seguir usuario' simple: centrar en la última ubicación del backend (if available)
+    document.getElementById('btnFollow').addEventListener('click', function(){
+      followMode = !followMode;
+      this.textContent = followMode ? 'Seguir: ON' : 'Seguir usuario';
+      if(followMode) fetchLocations(); // trigger immediate
+    });
+
+    // ===== Obtener ubicaciones desde backend (/location) y dibujar como en tu versión =====
+    var devicePolylines = {};
+    var deviceMarkers = {};
+    var deviceGreyPoints = [];
+
+    async function fetchLocations(){
+      try {
+        let response = await fetch('/location');
+        if(!response.ok){ console.warn('Respuesta /location no OK', response.status); return; }
+        let data = await response.json();
+        if(!Array.isArray(data) || data.length === 0){ console.log('Sin datos desde /location'); return; }
+
+        // Limpiar puntos grises antiguos (solo mantener algunos)
+        deviceGreyPoints.forEach(g=>map.removeLayer(g));
+        deviceGreyPoints = [];
+
+        // Agrupar por device code
+        const devices = {};
+        data.forEach(p => {
+          if(!devices[p.code]) devices[p.code] = [];
+          devices[p.code].push(p);
+        });
+
+        Object.keys(devices).forEach(code => {
+          const arr = devices[code];
+          const color = getColorFromCode(code);
+          // Remove old polyline & marker
+          if(devicePolylines[code]) map.removeLayer(devicePolylines[code]);
+          if(deviceMarkers[code]) map.removeLayer(deviceMarkers[code]);
+
+          const latlngs = arr.map(p => [p.lat, p.lng]);
+          devicePolylines[code] = L.polyline(latlngs, { color: color, weight:4, opacity:0.8 }).addTo(map);
+
+          // grey small points for history (all but last)
+          arr.slice(0,-1).forEach(p=>{
+            const c = L.circleMarker([p.lat, p.lng], {radius:5, color:'#666', fillColor:'#666', fillOpacity:0.6}).addTo(map);
+            deviceGreyPoints.push(c);
+          });
+
+          const last = arr[arr.length-1];
+          const ic = markerIcon('orange');
+          deviceMarkers[code] = L.marker([last.lat, last.lng], {icon: ic}).addTo(map);
+          deviceMarkers[code].bindPopup(`<b>${last.name || 'Usuario'}</b><br/>${last.lat.toFixed(6)}, ${last.lng.toFixed(6)}<br/>Vel: ${last.speedKmh || 0} km/h`);
+          if(followMode) map.setView([last.lat, last.lng], 15);
+        });
+
+      } catch(err) {
+        console.error('Error obteniendo ubicaciones:', err);
+      }
+    }
+
+    function getColorFromCode(code){
+      const colors = [ 'blue', 'green', 'purple', 'orange', 'red', 'cyan', 'yellow', 'brown', 'pink', 'violet', 'indigo' ];
+      const idx = Math.abs(hashCode(code)) % colors.length;
+      return colors[idx];
+    }
+    function hashCode(s){ return s.split('').reduce((a,c)=>((a<<5)-a)+c.charCodeAt(0), 0); }
+
+    document.getElementById('btnRefresh').addEventListener('click', fetchLocations);
+    document.getElementById('btnCenterAll').addEventListener('click', function(){
+      const group = L.featureGroup(Object.values(objectMarkers).concat(Object.values(deviceMarkers)));
+      if(group.getLayers().length) map.fitBounds(group.getBounds().pad(0.2));
+      else alert('No hay marcadores para mostrar.');
+    });
+
+    // Optionally start periodic refresh
+    document.getElementById('refreshInterval').addEventListener('change', function(){
+      const v = parseInt(this.value || '0');
+      if(backendRefreshTimer) { clearInterval(backendRefreshTimer); backendRefreshTimer = null; }
+      if(v > 0){
+        backendRefreshTimer = setInterval(fetchLocations, v*1000);
+        fetchLocations();
+      }
+    });
+
+    // ===== User location button =====
+    document.getElementById('btnLocate').addEventListener('click', function(){
+      map.locate({setView:true, maxZoom:16});
+    });
+    map.on('locationfound', function(e){
+      const r = e.accuracy || 0;
+      const circle = L.circle(e.latlng, {radius: r, color:'#1e88e5', fillOpacity:0.15}).addTo(map);
+      const m = L.marker(e.latlng, {icon: markerIcon('green')}).addTo(map);
+      m.bindPopup('Tu ubicación actual').openPopup();
+      setTimeout(()=>{ if(map.hasLayer(m)) map.removeLayer(m); if(map.hasLayer(circle)) map.removeLayer(circle); }, 12000);
+    });
+
+    // ===== Utilities =====
+    function escapeHtmlSafe(str){
+      return String(str).replace(/[&<>"']/g, function(s){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[s]; });
+    }
+
+    // ===== Helper: copy/paste of routeFrom/To by clicking on map markers/objects =====
+    // When user right-clicks a marker or object, fill routeFrom or routeTo
+    map.on('contextmenu', function(e){
+      // show simple chooser
+      const lat = e.latlng.lat.toFixed(6), lng = e.latlng.lng.toFixed(6);
+      if(!confirm('Rellenar "Hasta" con esta coordenada?\n' + lat + ',' + lng)) return;
+      document.getElementById('routeTo').value = `${lat},${lng}`;
+    });
+
+    // Allow clicking object list to populate route inputs
+    // Also add double-click on map to fill routeFrom
+    map.on('dblclick', function(e){
+      const lat = e.latlng.lat.toFixed(6), lng = e.latlng.lng.toFixed(6);
+      document.getElementById('routeFrom').value = `${lat},${lng}`;
+      alert('Coordenada colocada en Desde: ' + lat + ',' + lng);
+    });
+
+    // ===== Helpers: small UX =====
+    function showTemporaryMessage(msg, t=2000){ const el = document.createElement('div'); el.style.position='absolute'; el.style.right='20px'; el.style.top='20px'; el.style.background='#222'; el.style.color='white'; el.style.padding='8px 12px'; el.style.borderRadius='8px'; el.style.boxShadow='0 6px 18px rgba(0,0,0,0.12)'; el.textContent = msg; document.body.appendChild(el); setTimeout(()=>el.remove(), t); }
+
+    // ===== Inicial UI state =====
+    renderObjects();
+
+    // ===== Small polish: prevent routingControl conflict if user navigates away =====
+    window.addEventListener('beforeunload', function(){ if(routingControl) map.removeControl(routingControl); });
+
+    // ===== End of script =====
+  </script>
+</body>
+</html>
+
