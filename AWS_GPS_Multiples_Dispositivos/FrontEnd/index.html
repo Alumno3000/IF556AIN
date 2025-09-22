@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- Título de la pestaña del navegador -->
+  <title>Rastreo GPS</title>
+  
+  <!-- Codificación de caracteres -->
+  <meta charset="utf-8"/>
+  
+  <!-- Hacer que la página sea responsive (se adapte a pantallas móviles) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Hoja de estilos de Leaflet (librería de mapas) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+  <style>
+    /* El mapa ocupa toda la pantalla (alto y ancho) */
+    #map { height: 100vh; width: 100%; }
+  </style>
+</head>
+<body>
+  <!-- Encabezado de la página con el nombre y código del usuario a rastrear -->
+  <h2 style="text-align:center;">Seguimiento de Alex Berrios Thea (215781)</h2>
+
+  <!-- Contenedor donde se cargará el mapa -->
+  <div id="map"></div>
+
+  <!-- Script principal de Leaflet (JS) para manejar mapas -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+    // Inicializa el mapa centrado en coordenadas [0, 0] y zoom 2
+    var map = L.map('map').setView([0, 0], 2);
+
+    // Capa base del mapa usando OpenStreetMap
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Almacenan marcadores anteriores (históricos) y los actuales por dispositivo
+    var markers = {};
+    var currentMarkers = {};
+
+    // Indica si es la primera vez que se actualiza el mapa (para centrarlo)
+    var firstUpdate = true;
+
+    // Estilo para los puntos históricos (color gris oscuro)
+    var darkGreyCircleOptions = {
+      color: '#555',
+      fillColor: '#555',
+      fillOpacity: 0.6,
+      radius: 6
+    };
+
+    // Colores disponibles para marcar diferentes dispositivos
+    var userColors = [
+      'blue', 'green', 'red', 'orange', 'yellow', 'violet', 'grey', 'black'
+    ];
+
+    // Determina un color basado en el código del dispositivo (usando base 36)
+    function getUserColor(deviceCode) {
+      const index = parseInt(deviceCode, 36) % userColors.length;
+      return userColors[index];
+    }
+
+    // Función principal que obtiene las ubicaciones del servidor
+    async function fetchLocations() {
+      try {
+        // Llama a la API /location (en el mismo servidor)
+        let response = await fetch('/location');
+        let data = await response.json();
+
+        if (data.length > 0) {
+          // Limpia todos los marcadores anteriores del mapa
+          Object.values(currentMarkers).forEach(marker => map.removeLayer(marker));
+          Object.values(markers).forEach(marker => map.removeLayer(marker));
+
+          // Agrupa los datos por código de dispositivo
+          let devices = {};
+          data.forEach(p => {
+            if (!devices[p.code]) devices[p.code] = [];
+            devices[p.code].push(p);
+          });
+
+          // Recorre cada dispositivo para mostrar sus puntos
+          Object.keys(devices).forEach(deviceCode => {
+            const deviceData = devices[deviceCode];
+            const color = getUserColor(deviceCode); // Color asignado a este dispositivo
+
+            // Mostrar puntos históricos en color gris
+            deviceData.slice(0, -1).forEach(p => {
+              let circle = L.circleMarker([p.lat, p.lng], darkGreyCircleOptions).addTo(map);
+              circle.bindPopup(`<b>Usuario:</b> ${p.name}<br/><b>Código:</b> ${p.code}`);
+              markers[`${deviceCode}-${p.timestamp ?? Math.random()}`] = circle;
+            });
+
+            // Mostrar el último punto como marcador de color con ícono personalizado
+            let last = deviceData[deviceData.length - 1];
+
+            // Si ya había un marcador actual para este dispositivo, se elimina
+            if (currentMarkers[deviceCode]) map.removeLayer(currentMarkers[deviceCode]);
+
+            // Define un ícono personalizado basado en el color
+            const markerIcon = L.icon({
+              iconUrl: `https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-2x-${color}.png`,
+              shadowUrl: 'https://unpkg.com/leaflet/dist/images/marker-shadow.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34],
+              shadowSize: [41, 41]
+            });
+
+            // Crea el marcador para el último punto y lo agrega al mapa
+            currentMarkers[deviceCode] = L.marker([last.lat, last.lng], {icon: markerIcon}).addTo(map);
+            currentMarkers[deviceCode].bindPopup(`<b>Usuario:</b> ${last.name}<br/><b>Código:</b> ${last.code}`);
+
+            // Si es la primera vez que se actualiza el mapa, se centra en la última ubicación
+            if (firstUpdate) {
+              map.setView([last.lat, last.lng], 15);
+              firstUpdate = false;
+            }
+          });
+        }
+      } catch (err) {
+        // Muestra error en consola si falla la solicitud
+        console.error("Error obteniendo ubicaciones:", err);
+      }
+    }
+
+    // Llama a la función por primera vez
+    fetchLocations();
+
+    // Repite la función cada 5 segundos para actualizar el mapa en tiempo real
+    setInterval(fetchLocations, 5000);
+  </script>
+</body>
+</html>
+
