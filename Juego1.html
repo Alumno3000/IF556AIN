@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Breakout - Juego en un solo archivo</title>
+  <style>
+    /* Variables CSS para colores y temas */
+    :root{
+      --bg:#0f1724;           /* Color de fondo principal */
+      --panel:#0b1220;        /* Color del panel del juego */
+      --accent:#22c1c3;       /* Color de acento para botones */
+      --muted:#9aa7b2;        /* Color para texto secundario */
+    }
+    
+    /* Estilos base */
+    html,body{
+      height:100%;
+      margin:0;
+      font-family:Inter, system-ui, Arial;
+      background:var(--bg);
+      color:#e6eef3;
+    }
+    
+    /* Contenedor principal centrado */
+    .container{
+      display:flex;
+      height:100vh;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      box-sizing:border-box;
+    }
+    
+    /* Panel alrededor del canvas */
+    .panel{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.06));
+      border-radius:12px;
+      padding:12px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+      width:900px;
+      max-width:100%;
+    }
+    
+    /* Barra superior con información y controles */
+    .topbar{
+      display:flex;
+      gap:10px;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:8px;
+    }
+    
+    /* Información del juego (puntuación, nivel, vidas) */
+    .info{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      color:var(--muted);
+      font-size:14px;
+    }
+    
+    /* Contenedor de botones */
+    .controls{
+      display:flex;
+      gap:8px;
+    }
+    
+    /* Estilos base para botones */
+    button{
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.06);
+      color:#dff; 
+      padding:6px 10px;
+      border-radius:8px;
+      cursor:pointer;
+    }
+    
+    /* Botón principal con gradiente */
+    button.primary{
+      background:linear-gradient(90deg,var(--accent),#7af5f0); 
+      color:#04202a; 
+      border:0;
+    }
+    
+    /* Canvas del juego */
+    canvas{
+      display:block;
+      background:linear-gradient(180deg,#071028 0%, #052028 100%);
+      border-radius:8px;
+      width:100%;
+      height:540px;
+    }
+    
+    /* Ajustes para dispositivos móviles */
+    @media (max-width:600px){
+      canvas{height:420px}
+    }
+    
+    /* Texto de ayuda */
+    .hint{
+      font-size:13px;
+      color:var(--muted);
+      margin-top:8px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Estructura principal del juego -->
+  <div class="container">
+    <div class="panel" role="application" aria-label="Juego Breakout">
+      <!-- Barra superior con información y controles -->
+      <div class="topbar">
+        <div class="info">
+          <div id="score">Puntuación: 0</div>
+          <div id="level">Nivel: 1</div>
+          <div id="lives">Vidas: 3</div>
+        </div>
+        <div class="controls">
+          <button id="btnPause">Pausa</button>
+          <button id="btnRestart" class="primary">Reiniciar</button>
+        </div>
+      </div>
+
+      <!-- Canvas donde se renderiza el juego -->
+      <canvas id="game"></canvas>
+      <div class="hint">Controles: ← → para mover la paleta. Tocar la pantalla para mover. Barra espaciadora para pausar/reanudar.</div>
+    </div>
+  </div>
+
+  <script>
+    /*
+     * BREAKOUT - Juego clásico en un solo archivo HTML
+     * Características:
+     * - Diseño responsivo que se adapta a diferentes tamaños de pantalla
+     * - Controles por teclado y táctiles para dispositivos móviles
+     * - Sistema de niveles con aumento progresivo de dificultad
+     * - Efectos de sonido generados con Web Audio API (sin archivos externos)
+     */
+
+    // ===== CONFIGURACIÓN INICIAL Y VARIABLES GLOBALES =====
+    
+    // Referencias al canvas y contexto de renderizado
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d', { alpha: false }); // Desactivar alpha para mejor rendimiento
+
+    // Dimensiones base del juego (serán escaladas según el dispositivo)
+    let W = 900, H = 540;
+    const devicePixelRatio = window.devicePixelRatio || 1; // Para pantallas de alta densidad
+
+    // Estado global del juego
+    const state = {
+      running: false,      // Indica si el juego está en ejecución
+      paused: false,       // Indica si el juego está pausado
+      score: 0,            // Puntuación actual del jugador
+      level: 1,            // Nivel actual del juego
+      lives: 3,            // Vidas restantes del jugador
+      bricksRows: 4,       // Número de filas de ladrillos
+      bricksCols: 8,       // Número de columnas de ladrillos
+      paddle: null,        // Objeto que representa la paleta
+      ball: null,          // Objeto que representa la pelota
+      bricks: [],          // Array con todos los ladrillos del nivel
+      keys: { left:false, right:false }, // Estado de las teclas
+      lastTime: 0,         // Marca de tiempo del último frame (para cálculo de delta time)
+      dt: 0,               // Delta time (tiempo transcurrido entre frames)
+      rngSeed: Math.random()*1000 // Semilla para generación de números aleatorios
+    };
+
+    // ===== SISTEMA DE AUDIO =====
+    
+    // Contexto de audio para generar sonidos
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    /**
+     * Genera un sonido simple usando la Web Audio API
+     * @param {number} freq - Frecuencia del sonido en Hz
+     * @param {number} duration - Duración del sonido en segundos
+     * @param {string} type - Tipo de onda (sine, square, triangle, sawtooth)
+     * @param {number} gain - Volumen del sonido (0-1)
+     */
+    function beep(freq=440, duration=0.06, type='sine', gain=0.12){
+      const now = audioCtx.currentTime;
+      const o = audioCtx.createOscillator();  // Oscilador para generar la onda
+      const g = audioCtx.createGain();        // Control de volumen
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.value = gain;
+      o.connect(g); 
+      g.connect(audioCtx.destination);
+      o.start(now);
+      o.stop(now + duration);
+    }
+
+    // ===== DEFINICIÓN DE ENTIDADES DEL JUEGO =====
+    
+    /**
+     * Crea y retorna un objeto paleta con propiedades iniciales
+     * @returns {Object} Objeto paleta
+     */
+    function createPaddle(){
+      return {
+        w: 120,     // Ancho de la paleta
+        h: 14,      // Alto de la paleta
+        x: 0,       // Posición X (se establecerá más tarde)
+        y: 0,       // Posición Y (se establecerá más tarde)
+        speed: 8,   // Velocidad de movimiento
+        color: '#9ee' // Color de la paleta
+      };
+    }
+
+    /**
+     * Crea y retorna un objeto pelota con propiedades iniciales
+     * @returns {Object} Objeto pelota
+     */
+    function createBall(){
+      return {
+        r: 9,           // Radio de la pelota
+        x: 0, y:0,      // Posición (se establecerá más tarde)
+        vx: 220,        // Velocidad horizontal (px/segundo)
+        vy: -220,       // Velocidad vertical (px/segundo)
+        speedMultiplier: 1.0, // Multiplicador de velocidad
+        color: '#fff'    // Color de la pelota
+      };
+    }
+
+    /**
+     * Construye un array de ladrillos para el nivel actual
+     * @param {number} rows - Número de filas de ladrillos
+     * @param {number} cols - Número de columnas de ladrillos
+     * @returns {Array} Array de objetos ladrillo
+     */
+    function buildBricks(rows, cols){
+      const bricks = [];
+      const padding = 8;           // Espacio entre ladrillos
+      const brickW = Math.floor((W - 60 - (cols-1)*padding)/cols); // Ancho calculado dinámicamente
+      const brickH = 22;           // Alto del ladrillo
+      const offsetX = 30;          // Margen izquierdo
+      const offsetY = 60;          // Margen superior
+      
+      // Crear ladrillos en una cuadrícula
+      for(let r=0; r<rows; r++){
+        for(let c=0; c<cols; c++){
+          const b = {
+            x: offsetX + c*(brickW+padding),  // Posición X
+            y: offsetY + r*(brickH+padding),  // Posición Y
+            w: brickW, h: brickH,             // Dimensiones
+            hp: 1 + Math.floor(r/2),          // Puntos de vida (más en filas superiores)
+            alive: true,                      // Estado del ladrillo
+            color: `hsl(${50 + r*18}, 80%, 60%)` // Color basado en la fila
+          };
+          bricks.push(b);
+        }
+      }
+      return bricks;
+    }
+
+    // ===== SISTEMA DE REINICIO Y CAMBIO DE NIVEL =====
+    
+    /**
+     * Reinicia el tablero de juego, ya sea completamente o para un nuevo nivel
+     * @param {boolean} fullReset - Si es true, reinicia puntuación, nivel y vidas
+     */
+    function resetBoard(fullReset=false){
+      // Actualizar dimensiones según el tamaño actual del canvas
+      W = canvas.clientWidth;
+      H = canvas.clientHeight;
+      
+      // Crear o resetear entidades
+      state.paddle = createPaddle();
+      state.ball = createBall();
+      
+      // Posicionar paleta y pelota
+      state.paddle.x = W/2 - state.paddle.w/2;
+      state.paddle.y = H - 42;
+      state.ball.x = W/2;
+      state.ball.y = state.paddle.y - state.ball.r - 4;
+      
+      // Ajustar velocidades según el nivel y escala de pantalla
+      const scale = Math.min(W/900, H/540);
+      state.ball.vx = 220 * (1 + (state.level-1)*0.12) * scale;
+      state.ball.vy = -220 * (1 + (state.level-1)*0.12) * scale;
+      
+      // Ajustar dificultad según el nivel
+      state.paddle.w = Math.max(64, 120 * (1 - (state.level-1)*0.06)); // Paleta más pequeña
+      state.paddle.speed = 9 * (1 + (state.level-1)*0.06) * scale;     // Mayor velocidad
+      
+      // Reinicio completo (nuevo juego)
+      if(fullReset){
+        state.score = 0;
+        state.level = 1;
+        state.lives = 3;
+      }
+      
+      // Configurar ladrillos según el nivel
+      state.bricksRows = 3 + Math.min(6, state.level);           // Más filas en niveles altos
+      state.bricksCols = Math.min(10, 6 + Math.floor(state.level/2)); // Más columnas
+      state.bricks = buildBricks(state.bricksRows, state.bricksCols);
+      
+      // Actualizar interfaz de usuario
+      updateHUD();
+    }
+
+    // ===== INTERFAZ DE USUARIO (HUD) =====
+    
+    // Referencias a elementos del HUD
+    const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level');
+    const livesEl = document.getElementById('lives');
+    
+    /**
+     * Actualiza los elementos de la interfaz con los valores actuales del juego
+     */
+    function updateHUD(){
+      scoreEl.textContent = 'Puntuación: ' + state.score;
+      levelEl.textContent = 'Nivel: ' + state.level;
+      livesEl.textContent = 'Vidas: ' + state.lives;
+    }
+
+    // ===== SISTEMA DE ENTRADA (TECLADO) =====
+    
+    // Eventos de teclado para controlar la paleta y pausar el juego
+    window.addEventListener('keydown', e=>{
+      if(e.code === 'ArrowLeft'){ 
+        state.keys.left = true; 
+        e.preventDefault(); 
+      }
+      else if(e.code === 'ArrowRight'){ 
+        state.keys.right = true; 
+        e.preventDefault(); 
+      }
+      else if(e.code === 'Space'){ 
+        togglePause(); 
+        e.preventDefault(); 
+      }
+    });
+    
+    window.addEventListener('keyup', e=>{
+      if(e.code === 'ArrowLeft'){ state.keys.left = false; }
+      else if(e.code === 'ArrowRight'){ state.keys.right = false; }
+    });
+
+    // ===== SISTEMA DE ENTRADA (TÁCTIL/PUNTERO) =====
+    
+    let touching = false; // Estado de toque/puntero
+    
+    // Eventos para control táctil y de ratón
+    canvas.addEventListener('pointerdown', e=>{
+      // Reactivar audio si está suspendido (requerido en algunos navegadores)
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      touching = true;
+      movePaddleToPointer(e);
+    });
+    
+    window.addEventListener('pointermove', e=>{
+      if(touching) movePaddleToPointer(e);
+    });
+    
+    window.addEventListener('pointerup', ()=> touching = false);
+    
+    /**
+     * Mueve la paleta a la posición del puntero/touch
+     * @param {Event} e - Evento de puntero/touch
+     */
+    function movePaddleToPointer(e){
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      state.paddle.x = Math.max(0, Math.min(W - state.paddle.w, x - state.paddle.w/2));
+    }
+
+    // ===== SISTEMA DE FÍSICA Y COLISIONES =====
+    
+    /**
+     * Actualiza el estado del juego (física, colisiones, lógica)
+     * @param {number} dt - Delta time (tiempo transcurrido desde el último frame)
+     */
+    function update(dt){
+      if(state.paused) return; // No actualizar si el juego está pausado
+      
+      const p = state.paddle;
+      const b = state.ball;
+
+      // MOVIMIENTO DE LA PALETA POR TECLADO
+      if(state.keys.left) p.x -= p.speed * dt * 60 / 60; // Normalizado a 60 FPS
+      if(state.keys.right) p.x += p.speed * dt * 60 / 60;
+      
+      // LIMITAR PALETA DENTRO DE LOS BORDES
+      p.x = Math.max(0, Math.min(W - p.w, p.x));
+
+      // MOVER PELOTA
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      // REBOTES CON PAREDES
+      if(b.x - b.r < 0){ 
+        b.x = b.r; 
+        b.vx = Math.abs(b.vx); 
+        beep(260,0.03,'square',0.06); 
+      }
+      if(b.x + b.r > W){ 
+        b.x = W - b.r; 
+        b.vx = -Math.abs(b.vx); 
+        beep(260,0.03,'square',0.06); 
+      }
+      if(b.y - b.r < 0){ 
+        b.y = b.r; 
+        b.vy = Math.abs(b.vy); 
+        beep(320,0.03,'sine',0.06); 
+      }
+
+      // COLISIÓN CON LA PALETA
+      if(b.y + b.r >= p.y && b.y + b.r <= p.y + p.h && 
+         b.x >= p.x && b.x <= p.x + p.w && b.vy > 0){
+        
+        // Calcular ángulo de rebote según la posición de impacto
+        const rel = (b.x - (p.x + p.w/2)) / (p.w/2); // -1 a 1 (izquierda a derecha)
+        const angle = rel * (Math.PI/3); // Ángulo máximo de 60 grados
+        const speed = Math.hypot(b.vx, b.vy) * 1.03; // Aumentar ligeramente la velocidad
+        
+        // Aplicar nueva dirección
+        b.vx = speed * Math.sin(angle);
+        b.vy = -Math.abs(speed * Math.cos(angle));
+        
+        // Reposicionar pelota para evitar colisiones múltiples
+        b.y = p.y - b.r - 0.5;
+        beep(640 + Math.abs(rel)*200, 0.04, 'triangle', 0.08);
+      }
+
+      // DETECCIÓN DE CAÍDA (PÉRDIDA DE VIDA)
+      if(b.y - b.r > H){
+        state.lives -= 1;
+        updateHUD();
+        beep(120,0.2,'sine',0.18);
+        
+        if(state.lives <= 0){
+          // GAME OVER
+          state.running = false;
+          state.paused = true;
+          setTimeout(()=> alert('Game Over\nPuntuación: ' + state.score), 50);
+        } else {
+          // Reiniciar posición de pelota y paleta
+          state.paddle.x = W/2 - p.w/2;
+          b.x = W/2; 
+          b.y = p.y - b.r - 4;
+          b.vx = 220 * (Math.random()>0.5?1:-1); // Dirección aleatoria
+          b.vy = -220;
+        }
+      }
+
+      // COLISIONES CON LADRILLOS
+      for(const brick of state.bricks){
+        if(!brick.alive) continue;
+        
+        // Detectar colisión
+        if(b.x + b.r > brick.x && b.x - b.r < brick.x + brick.w &&
+           b.y + b.r > brick.y && b.y - b.r < brick.y + brick.h){
+          
+          // Determinar dirección de rebote basada en el lado de colisión
+          const overlapLeft = (b.x + b.r) - brick.x;
+          const overlapRight = (brick.x + brick.w) - (b.x - b.r);
+          const overlapTop = (b.y + b.r) - brick.y;
+          const overlapBottom = (brick.y + brick.h) - (b.y - b.r);
+          const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+
+          // Aplicar rebote según el lado de colisión
+          if(minOverlap === overlapLeft) b.vx = -Math.abs(b.vx);
+          else if(minOverlap === overlapRight) b.vx = Math.abs(b.vx);
+          else if(minOverlap === overlapTop) b.vy = -Math.abs(b.vy);
+          else b.vy = Math.abs(b.vy);
+
+          // REDUCIR VIDA DEL LADRILLO
+          brick.hp -= 1;
+          if(brick.hp <= 0){
+            brick.alive = false;
+            state.score += 10; // Puntos por destruir ladrillo
+          } else {
+            state.score += 5; // Puntos por dañar ladrillo
+          }
+          
+          // Aumentar ligeramente la velocidad
+          b.vx *= 1.02;
+          b.vy *= 1.02;
+          beep(900 - brick.y*0.6, 0.03, 'sawtooth', 0.07);
+          updateHUD();
+          break; // Solo una colisión por frame para evitar problemas
+        }
+      }
+
+      // COMPROBAR SI SE COMPLETÓ EL NIVEL
+      const anyAlive = state.bricks.some(b => b.alive);
+      if(!anyAlive){
+        state.level += 1;
+        state.score += 100 * state.level; // Bonificación por completar nivel
+        
+        // Preparar siguiente nivel
+        resetBoard(false);
+        beep(1200,0.08,'sawtooth',0.12);
+      }
+    }
+
+    // ===== SISTEMA DE RENDERIZADO =====
+    
+    /**
+     * Dibuja todos los elementos del juego en el canvas
+     */
+    function draw(){
+      // FONDO
+      ctx.fillStyle = '#051018';
+      ctx.fillRect(0,0,W,H);
+
+      // DIBUJAR PALETA
+      const p = state.paddle;
+      
+      // Sombra sutil
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(p.x+2, p.y+6, p.w, p.h);
+      
+      // Paleta principal
+      ctx.fillStyle = '#8ff';
+      roundRect(ctx, p.x, p.y, p.w, p.h, 8, true, false);
+
+      // DIBUJAR PELOTA
+      const b = state.ball;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      
+      // Gradiente para efecto de brillo
+      const g = ctx.createRadialGradient(b.x-3, b.y-3, b.r*0.2, b.x, b.y, b.r);
+      g.addColorStop(0,'#fff');
+      g.addColorStop(1,'#88d');
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      // DIBUJAR LADRILLOS
+      for(const brick of state.bricks){
+        if(!brick.alive) continue;
+        
+        // Ladrillo con borde y relleno
+        roundRect(ctx, brick.x, brick.y, brick.w, brick.h, 6, true, true, brick.color, '#08323b');
+        
+        // Mostrar puntos de vida si es mayor a 1
+        if(brick.hp > 1){
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.font = '12px system-ui, Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(brick.hp, brick.x + brick.w/2, brick.y + brick.h/2 + 4);
+        }
+      }
+
+      // HUD DENTRO DEL CANVAS: MENSAJE DE PAUSA
+      if(state.paused){
+        ctx.fillStyle = 'rgba(2,6,12,0.55)';
+        ctx.fillRect(W/2 - 110, H/2 - 40, 220, 80);
+        ctx.fillStyle = '#dff';
+        ctx.font = '20px system-ui, Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('PAUSA', W/2, H/2 - 6);
+        ctx.font = '12px system-ui, Arial';
+        ctx.fillText('Presiona Espacio para continuar', W/2, H/2 + 18);
+      }
+    }
+
+    /**
+     * Dibuja un rectángulo con bordes redondeados
+     * @param {CanvasRenderingContext2D} ctx - Contexto del canvas
+     * @param {number} x - Posición X
+     * @param {number} y - Posición Y
+     * @param {number} w - Ancho
+     * @param {number} h - Alto
+     * @param {number} r - Radio de las esquinas
+     * @param {boolean} fill - Si debe rellenar el rectángulo
+     * @param {boolean} stroke - Si debe dibujar el borde
+     * @param {string} fillStyle - Color de relleno
+     * @param {string} strokeStyle - Color del borde
+     */
+    function roundRect(ctx, x, y, w, h, r, fill=true, stroke=false, fillStyle='#fff', strokeStyle='rgba(0,0,0,0.25)'){
+      if(typeof r === 'undefined') r=6;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      if(fill){
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      if(stroke){
+        ctx.strokeStyle = strokeStyle;
+        ctx.stroke();
+      }
+    }
+
+    // ===== BUCLE PRINCIPAL DEL JUEGO =====
+    
+    /**
+     * Bucle principal de animación del juego
+     * @param {number} ts - Timestamp proporcionado por requestAnimationFrame
+     */
+    function loop(ts){
+      if(!state.running) return; // Detener si el juego no está corriendo
+      
+      if(!state.lastTime) state.lastTime = ts;
+      const dt = (ts - state.lastTime) / 1000; // Calcular delta time en segundos
+      state.lastTime = ts;
+      
+      update(dt); // Actualizar lógica del juego
+      draw();     // Renderizar frame
+      
+      requestAnimationFrame(loop); // Solicitar siguiente frame
+    }
+
+    // ===== CONTROLES DE LA INTERFAZ =====
+    
+    // Referencias a botones
+    const btnPause = document.getElementById('btnPause');
+    const btnRestart = document.getElementById('btnRestart');
+    
+    // Event listeners para los botones
+    btnPause.addEventListener('click', togglePause);
+    btnRestart.addEventListener('click', ()=> {
+      resetBoard(true); // Reinicio completo
+      startGame();
+    });
+
+    /**
+     * Alterna el estado de pausa del juego
+     */
+    function togglePause(){
+      if(!state.running) return;
+      state.paused = !state.paused;
+      btnPause.textContent = state.paused ? 'Reanudar' : 'Pausa';
+      
+      if(!state.paused){
+        // Reanudar el bucle si estaba pausado
+        state.lastTime = 0;
+        requestAnimationFrame(loop);
+      }
+    }
+
+    // ===== INICIO Y DETENCIÓN DEL JUEGO =====
+    
+    /**
+     * Inicia el juego
+     */
+    function startGame(){
+      state.running = true;
+      state.paused = false;
+      btnPause.textContent = 'Pausa';
+      state.lastTime = 0;
+      updateHUD();
+      
+      // Comenzar el bucle de juego
+      requestAnimationFrame(loop);
+    }
+
+    // ===== SISTEMA DE REDIMENSIONADO RESPONSIVO =====
+    
+    /**
+     * Ajusta el canvas para alta resolución y diferentes tamaños de pantalla
+     */
+    function fitCanvas(){
+      // Obtener dimensiones actuales del canvas en pantalla
+      const rect = canvas.getBoundingClientRect();
+      
+      // Ajustar el buffer interno para alta densidad de píxeles
+      canvas.width = Math.max(300, Math.floor(rect.width * devicePixelRatio));
+      canvas.height = Math.max(200, Math.floor(rect.height * devicePixelRatio));
+      
+      // Mantener dimensiones lógicas (independientes de la densidad de píxeles)
+      W = rect.width;
+      H = rect.height;
+      
+      // Escalar el contexto para que 1 unidad lógica = 1 píxel CSS
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      
+      // Reajustar posiciones si el juego está corriendo
+      if(state.running || state.bricks.length===0) resetBoard(false);
+    }
+
+    // Manejar redimensionado de ventana
+    window.addEventListener('resize', ()=> {
+      fitCanvas();
+    });
+
+    // ===== INICIALIZACIÓN DEL JUEGO =====
+    
+    // Función de inicialización auto-ejecutable
+    (function init(){
+      // Configurar tamaño inicial del canvas
+      const panel = document.querySelector('.panel');
+      const panelW = Math.min(900, panel.clientWidth - 24);
+      canvas.style.width = '100%';
+      canvas.style.height = '540px';
+      
+      // Ajustar canvas y comenzar juego
+      fitCanvas();
+      resetBoard(true);
+      startGame();
+    })();
+
+    // Mejora de accesibilidad: permitir focus en el canvas
+    canvas.tabIndex = 0;
+  </script>
+</body>
+</html>

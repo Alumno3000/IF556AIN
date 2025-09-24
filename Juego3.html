@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Car Racing – Vanilla JS + Three.js</title>
+  <style>
+    :root {
+      --hud-bg: rgba(0,0,0,.55);
+      --hud-fg: #fff;
+      --accent: #00e1ff;
+      --danger: #ff3b3b;
+      --ok: #27e38b;
+      --level1: #ff9500;
+      --level2: #00e1ff;
+      --level3: #9d4edd;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background:#0a0e14; color: var(--hud-fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; }
+    #game { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* HUD */
+    .hud { position: fixed; inset: 0; pointer-events: none; }
+    .topbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .pill { background: var(--hud-bg); border: 1px solid rgba(255,255,255,.1); padding: 8px 12px; border-radius: 999px; box-shadow: 0 4px 18px rgba(0,0,0,.35); font-weight: 600; letter-spacing: .25px; backdrop-filter: blur(6px); }
+    .pill .label { opacity: .75; margin-right: 6px; }
+    .right { margin-left: auto; }
+    .level-pill { background: linear-gradient(135deg, var(--level1), var(--level2)); }
+
+    .center-toast { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+    .title { font-size: clamp(20px, 5vw, 44px); font-weight: 800; letter-spacing: .5px; }
+    .subtitle { opacity: .85; margin-top: 8px; }
+    .btnrow { margin-top: 18px; display: flex; gap: 12px; justify-content: center; pointer-events: auto; flex-wrap: wrap; }
+    .btn { cursor: pointer; background: var(--accent); color: #001219; border: none; font-weight: 800; padding: 10px 16px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,225,255,.35); transition: transform .06s ease; }
+    .btn:active { transform: translateY(1px) scale(.99); }
+    .ghost { background: transparent; color: var(--hud-fg); border: 1px solid rgba(255,255,255,.2); box-shadow: none; }
+
+    /* Mobile controls */
+    .controls { position: absolute; bottom: 14px; left: 0; right: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 0 12px; pointer-events: auto; }
+    .pad { background: var(--hud-bg); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 10px 14px; font-weight: 800; text-align: center; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+    .pad:active { background: rgba(255,255,255,.1); }
+
+    .hidden { display: none !important; }
+
+    /* Help legend */
+    .help { position: absolute; right: 12px; bottom: 12px; background: var(--hud-bg); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px 12px; font-size: 12px; line-height: 1.35; opacity: .9; }
+    .help kbd { background: rgba(255,255,255,.14); border-radius: 6px; padding: 2px 6px; margin: 0 2px; }
+
+    /* Game over tint */
+    .overlay { position: absolute; inset: 0; background: radial-gradient(60% 50% at 50% 50%, transparent 0%, rgba(0,0,0,.45) 60%, rgba(0,0,0,.7) 100%); pointer-events: none; opacity: 0; transition: opacity .25s ease; }
+    .overlay.visible { opacity: 1; }
+
+    /* Level up notification */
+    .level-up { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0); text-align: center; background: rgba(0,0,0,.7); padding: 20px 30px; border-radius: 16px; border: 2px solid var(--accent); box-shadow: 0 0 40px rgba(0,225,255,.5); transition: transform .4s ease; z-index: 100; }
+    .level-up.active { transform: translate(-50%, -50%) scale(1); }
+    .level-up h2 { margin: 0; font-size: 2.5em; color: var(--accent); text-shadow: 0 0 10px rgba(0,225,255,.8); }
+    .level-up p { margin: 10px 0 0; font-size: 1.2em; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+
+  <div class="hud" aria-live="polite">
+    <div class="topbar">
+      <div class="pill"><span class="label">SPEED</span><span id="speed">0</span> km/h</div>
+      <div class="pill"><span class="label">SCORE</span><span id="score">0</span></div>
+      <div class="pill"><span class="label">LEVEL</span><span id="level">1</span></div>
+      <div class="pill"><span class="label">NEXT LEVEL</span><span id="next-level">2000</span></div>
+      <div class="pill right" id="status">   Ready</div>
+    </div>
+
+    <div class="center-toast" id="menu">
+      <div class="title">3D Car Racing</div>
+      <div class="subtitle">Vanilla JS + Three.js • Sistema de Niveles</div>
+      <div class="btnrow">
+        <button id="play" class="btn">▶ Play</button>
+        <button id="how" class="btn ghost">❓ How to play</button>
+      </div>
+    </div>
+
+    <div class="center-toast hidden" id="gameover">
+      <div class="title" style="color: var(--danger)">   Crash!</div>
+      <div class="subtitle">You collided with traffic.</div>
+      <div class="btnrow">
+        <button id="restart" class="btn">↻ Restart</button>
+        <button id="menuBtn" class="btn ghost">☰ Menu</button>
+      </div>
+    </div>
+
+    <div class="level-up hidden" id="levelUp">
+      <h2>¡Nivel Completado!</h2>
+      <p>Has alcanzado el nivel <span id="level-reached">1</span></p>
+    </div>
+
+    <div class="controls" id="mobileCtrls">
+      <div class="pad" data-key="ArrowLeft">⟵</div>
+      <div class="pad" data-key="ArrowUp">⟰</div>
+      <div class="pad" data-key="ArrowRight">⟶</div>
+      <div class="pad" data-key="ArrowDown" style="grid-column: 1 / span 3">⟱ Brake</div>
+    </div>
+
+    <div class="help">
+      <div>Controls: <kbd>A</kbd>/<kbd>←</kbd> left, <kbd>D</kbd>/<kbd>→</kbd> right, <kbd>W</kbd>/<kbd>↑</kbd> accel, <kbd>S</kbd>/<kbd>↓</kbd> brake</div>
+      <div><kbd>P</kbd> pause · <kbd>R</kbd> restart</div>
+    </div>
+
+    <div class="overlay" id="overlay"></div>
+  </div>
+
+  <!-- Three.js CDN -->
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+
+  <!-- Audio elements ANTES de usar en JS o esperar al DOMContentLoaded -->
+  <audio id="crashSound" src="crash.mp3" preload="auto"></audio>
+  <audio id="engineSound" src="engine.mp3" loop preload="auto"></audio>
+  <audio id="bgMusic" src="bgmusic.mp3" loop preload="auto"></audio>
+  <audio id="levelUpSound" src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" preload="auto"></audio>
+
+  <script>
+  // =========================================================
+  // 3D CAR RACING – Single-file implementation
+  // No game engine; just Three.js + vanilla JS
+  // =========================================================
+  window.addEventListener('DOMContentLoaded', () => {
+    // --- AUDIO ELEMENTS ---
+    const crashSound = document.getElementById('crashSound');
+    const engineSound = document.getElementById('engineSound');
+    const bgMusic = document.getElementById('bgMusic');
+    const levelUpSound = document.getElementById('levelUpSound');
+
+    // Mute background music initially (user interaction needed to play audio)
+    bgMusic.volume = 0.4;
+    engineSound.volume = 0.5;
+    crashSound.volume = 0.8;
+    levelUpSound.volume = 0.7;
+
+    const root = document.getElementById('game');
+    const hudSpeed = document.getElementById('speed');
+    const hudScore = document.getElementById('score');
+    const hudLevel = document.getElementById('level');
+    const hudNextLevel = document.getElementById('next-level');
+    const hudStatus= document.getElementById('status');
+    const menu     = document.getElementById('menu');
+    const gameover = document.getElementById('gameover');
+    const overlay  = document.getElementById('overlay');
+    const mobileCtrls = document.getElementById('mobileCtrls');
+    const levelUpNotification = document.getElementById('levelUp');
+    const levelReached = document.getElementById('level-reached');
+
+    const playBtn  = document.getElementById('play');
+    const howBtn   = document.getElementById('how');
+    const restartBtn = document.getElementById('restart');
+    const menuBtn  = document.getElementById('menuBtn');
+
+    const hasTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    if (!hasTouch) mobileCtrls.classList.add('hidden');
+
+    // ---------- THREE BASICS ----------
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0a0e14, 12, 120);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(0, 4.2, 9);
+    camera.lookAt(0, 0.5, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setClearColor(0x0a0e14, 1);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // Color space correcto en r158
+    if (renderer.outputColorSpace !== undefined) {
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+    root.appendChild(renderer.domElement);
+
+    // Lights
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x101018, 0.65);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(-2, 6, 5);
+    dir.castShadow = false;
+    scene.add(dir);
+
+    // ---------- UTILS ----------
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const lerp = (a,b,t) => a + (b-a) * t;
+
+    // ---------- ROAD + LANES ----------
+    const ROAD_WIDTH = 6;              // 3 lanes of 2 units each
+    const LANE_X = [-2, 0, 2];
+    const world = new THREE.Group();
+    scene.add(world);
+
+    // Road base
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x2c2f39, roughness: 1, metalness: 0 });
+    const road = new THREE.Mesh(new THREE.BoxGeometry(ROAD_WIDTH, 0.2, 400), roadMat);
+    road.position.y = -0.1;
+    world.add(road);
+
+    // Lane markers (recycled segments)
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x808080, emissiveIntensity: .35 });
+    const lineSegments = [];
+    for (let lane of [ -1, 1 ]) { // center lines at -1 and 1 (between 3 lanes)
+      for (let i = 0; i < 80; i++) {
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 1.5), lineMat);
+        seg.position.set(lane * 1.0, 0.02, -i * 4);
+        seg.receiveShadow = false;
+        world.add(seg);
+        lineSegments.push(seg);
+      }
+    }
+
+    // Side stripes
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0xececec, emissive: 0x404040, emissiveIntensity: .25 });
+    const leftStripe  = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 400), sideMat);
+    leftStripe.position.set(-ROAD_WIDTH/2 + 0.2, 0.02, -200);
+    world.add(leftStripe);
+    const rightStripe = leftStripe.clone();
+    rightStripe.position.x = ROAD_WIDTH/2 - 0.2;
+    world.add(rightStripe);
+
+    // ---------- PLAYER CAR ----------
+    function makeCar(color=0x00e1ff) {
+      const car = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: .2, roughness: .6 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x111316, metalness: .1, roughness: .9 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccee, roughness: .1, metalness: .9, envMapIntensity: .6 });
+
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.6, 2.4), bodyMat);
+      body.position.y = 0.55;
+      body.castShadow = body.receiveShadow = false;
+      car.add(body);
+
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 1.1), glassMat);
+      cabin.position.set(0, 0.95, -0.1);
+      car.add(cabin);
+
+      // Bumpers / details
+      const bumperF = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.25, 0.2), darkMat); bumperF.position.set(0, 0.35, -1.25); car.add(bumperF);
+      const bumperR = bumperF.clone(); bumperR.position.z = 1.25; car.add(bumperR);
+
+      // Wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.3, 16);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0d1117, metalness: .3, roughness: .6 });
+      const mkWheel = (x,z) => { const w = new THREE.Mesh(wheelGeo, wheelMat); w.rotation.z = Math.PI/2; w.position.set(x, 0.27, z); return w; };
+      car.add(mkWheel(-0.6, -0.9)); car.add(mkWheel(0.6, -0.9)); car.add(mkWheel(-0.6, 0.9)); car.add(mkWheel(0.6, 0.9));
+
+      // Headlights / taillights emissive quads
+      const lightMatF = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffffcc, emissiveIntensity: .9 });
+      const lightMatR = new THREE.MeshStandardMaterial({ color: 0xff3b3b, emissive: 0xff3b3b, emissiveIntensity: .8 });
+      const lamp = (mat,z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.1,0.05), mat); m.position.set(0.35,0.55,z); const m2 = m.clone(); m2.position.x *= -1; car.add(m,m2); };
+      lamp(lightMatF, -1.25); lamp(lightMatR, 1.25);
+
+      car.userData.bb = new THREE.Box3().setFromObject(car);
+      return car;
+    }
+
+    const player = makeCar(0x00e1ff);
+    player.position.set(0, 0, 3);
+    world.add(player);
+
+    // ---------- TRAFFIC ----------
+    const TRAFFIC_COUNT = 14;
+    const traffic = [];
+    function spawnTrafficCar(zOff = -rand(20, 150)) {
+      const c = makeCar(Math.random() < .5 ? 0xff6b00 : 0xff005b);
+      c.position.set(LANE_X[Math.floor(Math.random()*3)], 0, zOff);
+      c.userData.speed = rand(0.6, 1.2);
+      world.add(c);
+      traffic.push(c);
+    }
+    for (let i=0; i<TRAFFIC_COUNT; i++) spawnTrafficCar(-i*12 - rand(0,8));
+
+    // ---------- BUILDINGS ----------
+    const buildings = [];
+    const buildMat = new THREE.MeshStandardMaterial({ color: 0x1b1f2a, metalness: .05, roughness: .95 });
+    function spawnBuilding(side = -1, z = -rand(20, 200)) {
+      const w = rand(1.2, 2.5);
+      const h = rand(2.5, 8.0);
+      const d = rand(1.2, 2.2);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), buildMat);
+      b.position.set(side * (ROAD_WIDTH/2 + rand(0.6, 3.5)), h/2, z);
+      world.add(b);
+      buildings.push(b);
+    }
+    for (let i=0;i<30;i++){ spawnBuilding(-1, -i*12 - rand(0,10)); spawnBuilding(1, -i*12 - rand(0,10)); }
+
+    // ---------- STATE ----------
+    let running = false;
+    let paused = false;
+    let gameOver = false;
+
+    // Sistema de niveles
+    const levels = [
+      { name: "Principiante", targetScore: 2000, maxSpeed: 3.2, trafficDensity: 1.0, color: 0xff9500 },
+      { name: "Intermedio", targetScore: 4000, maxSpeed: 3.8, trafficDensity: 1.2, color: 0x00e1ff },
+      { name: "Avanzado", targetScore: 6000, maxSpeed: 4.2, trafficDensity: 1.4, color: 0x9d4edd },
+      { name: "Experto", targetScore: 8000, maxSpeed: 4.8, trafficDensity: 1.6, color: 0xff3b3b },
+      { name: "Maestro", targetScore: 10000, maxSpeed: 5.5, trafficDensity: 1.8, color: 0x27e38b }
+    ];
+
+    const state = {
+      speed: 0,           // world scroll speed (units per frame baseline)
+      targetSpeed: 1.4,   // grows with time
+      maxSpeed: levels[0].maxSpeed,
+      accel: 0.015,
+      brake: 0.04,
+      lateralSpeed: 0.18,
+      laneIndex: 1,       // 0,1,2
+      targetX: 0,
+      score: 0,
+      level: 0,           // índice del nivel actual
+      time: 0,
+      diffTimer: 0,       // acumulador de dificultad
+      best: Number(localStorage.getItem('racer_best')||0),
+    };
+    
+    // Actualizar HUD con información del nivel
+    function updateLevelHUD() {
+      hudLevel.textContent = state.level + 1;
+      hudNextLevel.textContent = levels[state.level].targetScore.toLocaleString();
+    }
+    updateLevelHUD();
+
+    // ---------- INPUT ----------
+    const keys = new Set();
+    function handleKey(e, down) {
+      const k = e.key;
+      if ([ 'ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','d','w','s','A','D','W','S' ].includes(k)) e.preventDefault();
+      if (k === 'p' || k === 'P') { togglePause(); return; }
+      if (k === 'r' || k === 'R') { restart(); return; }
+      if (!running || gameOver) return;
+
+      if (down) keys.add(k); else keys.delete(k);
+
+      const goLeft  = k==='ArrowLeft'||k==='a'||k==='A';
+      const goRight = k==='ArrowRight'||k==='d'||k==='D';
+      const goUp    = k==='ArrowUp'||k==='w'||k==='W';
+      const goDown  = k==='ArrowDown'||k==='s'||k==='S';
+
+      if (down && goLeft) changeLane(-1);
+      if (down && goRight) changeLane(1);
+      if (down && goUp) boost(+1);
+      if (down && goDown) boost(-1);
+    }
+    window.addEventListener('keydown', e => handleKey(e, true));
+    window.addEventListener('keyup',   e => handleKey(e, false));
+
+    // Mobile pads
+    mobileCtrls.addEventListener('touchstart', (e) => {
+      const t = e.target.closest('.pad'); if (!t) return;
+      e.preventDefault();
+      dispatchPad(t.dataset.key);
+    }, { passive:false });
+    function dispatchPad(code) {
+      if (!running || gameOver) return;
+      if (code==='ArrowLeft') changeLane(-1);
+      if (code==='ArrowRight') changeLane(+1);
+      if (code==='ArrowUp') boost(+1);
+      if (code==='ArrowDown') boost(-1);
+    }
+
+    function changeLane(dir) {
+      state.laneIndex = clamp(state.laneIndex + dir, 0, 2);
+      state.targetX = LANE_X[state.laneIndex];
+    }
+    function boost(sign) {
+      const delta = sign>0 ? state.accel*20 : -state.brake*20;
+      state.targetSpeed = clamp(state.targetSpeed + delta, 0.6, state.maxSpeed);
+    }
+
+    // ---------- GAME LOOP ----------
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(33, now - last) / 16.67; // frame factor (~60fps base)
+      last = now;
+      if (running && !paused && !gameOver) update(dt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+
+    function update(dt) {
+      // Smooth speed
+      state.speed = lerp(state.speed, state.targetSpeed, 0.02 * dt);
+      hudSpeed.textContent = Math.round(state.speed * 80);
+
+      // Auto difficulty over time (cada ~15 s sube un poco, tope según nivel)
+      state.time += dt;
+      state.diffTimer += dt;
+      if (state.diffTimer >= 900) { // 900 frames aprox = 15s a ~60fps
+        state.diffTimer = 0;
+        // La velocidad máxima ahora está limitada por el nivel
+        // Si el jugador ya va al tope, empuja targetSpeed
+        state.targetSpeed = Math.min(state.maxSpeed, state.targetSpeed + 0.02);
+      }
+
+      // Move world objects forward (towards camera)
+      const forward = state.speed * dt * 1.5;
+
+      for (const seg of lineSegments) {
+        seg.position.z += forward;
+        if (seg.position.z > camera.position.z + 4) seg.position.z -= 320; // recycle
+      }
+      leftStripe.position.z += forward; if (leftStripe.position.z > 0) leftStripe.position.z -= 200;
+      rightStripe.position.z = leftStripe.position.z;
+
+      for (const b of buildings) {
+        b.position.z += forward * 0.9;
+        if (b.position.z > camera.position.z + 6) { 
+          b.position.z -= 220 + rand(0,40); 
+          b.position.x = (Math.random()<.5?-1:1) * (ROAD_WIDTH/2 + rand(0.6, 3.5)); 
+          b.scale.y = rand(1,3); 
+          b.position.y = (b.geometry.parameters.height * b.scale.y) / 2; 
+        }
+      }
+
+      for (const c of traffic) {
+        // La velocidad del tráfico se ajusta según la densidad del nivel
+        const trafficSpeedMultiplier = levels[state.level].trafficDensity;
+        c.position.z += forward * (0.7 + c.userData.speed * 0.35 * trafficSpeedMultiplier);
+        if (c.position.z > camera.position.z + 6) {
+          c.position.z -= 180 + rand(20,40);
+          c.position.x = LANE_X[Math.floor(Math.random()*3)];
+          c.userData.speed = rand(0.6, 1.2);
+        }
+        // simple wheel spin illusion
+        for (const child of c.children) if (child.geometry && child.geometry.type === 'CylinderGeometry') child.rotation.x -= forward*0.6;
+      }
+
+      // Player lateral move
+      player.position.x = lerp(player.position.x, state.targetX, state.lateralSpeed * dt);
+      // Subtle bob + tilt
+      player.rotation.z = (player.position.x - state.targetX) * -0.06;
+      player.position.y = 0.02 + Math.sin(performance.now()/300) * 0.03;
+
+      // Score
+      state.score += forward * 2.5;
+      hudScore.textContent = Math.floor(state.score).toLocaleString();
+
+      // Verificar si se completó el nivel
+      checkLevelCompletion();
+
+      // Collision detection (AABB)
+      const playerBB = new THREE.Box3().setFromObject(player).expandByScalar(-0.1);
+      for (const c of traffic) {
+        const bb = new THREE.Box3().setFromObject(c).expandByScalar(-0.08);
+        if (playerBB.intersectsBox(bb)) { onCrash(); break; }
+      }
+    }
+
+    // Verificar si se completó un nivel
+    function checkLevelCompletion() {
+      if (state.level < levels.length - 1 && state.score >= levels[state.level].targetScore) {
+        // Subir de nivel
+        state.level++;
+        updateLevelHUD();
+        
+        // Actualizar parámetros del juego según el nuevo nivel
+        state.maxSpeed = levels[state.level].maxSpeed;
+        
+        // Mostrar notificación de nivel completado
+        showLevelUpNotification();
+        
+        // Reproducir sonido de nivel completado
+        try {
+          levelUpSound.currentTime = 0;
+          levelUpSound.play();
+        } catch (e) {
+          console.warn("Level up sound failed", e);
+        }
+      }
+    }
+
+    // Mostrar notificación de nivel completado
+    function showLevelUpNotification() {
+      levelReached.textContent = state.level + 1;
+      levelUpNotification.classList.remove('hidden');
+      levelUpNotification.classList.add('active');
+      
+      // Cambiar color del coche según el nivel
+      player.children[0].material.color.setHex(levels[state.level].color);
+      
+      // Ocultar notificación después de 3 segundos
+      setTimeout(() => {
+        levelUpNotification.classList.remove('active');
+        setTimeout(() => {
+          levelUpNotification.classList.add('hidden');
+        }, 400);
+      }, 3000);
+    }
+
+    // ---------- FLOW ----------
+    function start() {
+      running = true; paused = false; gameOver = false;
+      overlay.classList.remove('visible');
+      menu.classList.add('hidden');
+      gameover.classList.add('hidden');
+      hudStatus.textContent = '  ️ Go!';
+      resetWorld(true);
+      // Inicia los sonidos (tras interacción del usuario)
+      try {
+        bgMusic.currentTime = 0; bgMusic.play();
+        engineSound.currentTime = 0; engineSound.play();
+      } catch (e) {
+        console.warn("Audio play failed (possibly autoplay restrictions)", e);
+      }
+    }
+    
+    function resetWorld(hard=false) {
+      state.speed = 0; state.targetSpeed = 1.4; 
+      state.level = 0; // Reiniciar al nivel 1
+      state.maxSpeed = levels[0].maxSpeed;
+      state.time = 0; state.diffTimer = 0; state.score = 0;
+      state.laneIndex = 1; state.targetX = 0; player.position.x = 0;
+      
+      // Restaurar color original del coche
+      player.children[0].material.color.setHex(0x00e1ff);
+      
+      updateLevelHUD();
+      
+      if (hard) {
+        let z = -10;
+        for (const c of traffic) { c.position.set(LANE_X[Math.floor(Math.random()*3)], 0, z); z -= rand(8, 14); }
+        let i = 0; for (const b of buildings) { b.position.z = -i*12 - rand(0,10); b.position.x = (i%2?1:-1)*(ROAD_WIDTH/2 + rand(0.6,3.5)); i++; }
+        for (const seg of lineSegments) seg.position.z = -Math.random()*300;
+        leftStripe.position.z = -200; rightStripe.position.z = -200;
+      }
+    }
+
+    function onCrash() {
+      gameOver = true; running = false; paused = false;
+      overlay.classList.add('visible');
+      gameover.classList.remove('hidden');
+      hudStatus.textContent = '   Crash';
+      try { crashSound.currentTime = 0; crashSound.play(); } catch {}
+      try { engineSound.pause(); } catch {}
+      try { bgMusic.pause(); } catch {}
+
+      if (state.score > state.best) { 
+        state.best = Math.floor(state.score); 
+        localStorage.setItem('racer_best', state.best); 
+      }
+    }
+    
+    function restart() { gameOver = false; start(); }
+    
+    function togglePause() {
+      if (!running || gameOver) return;
+      paused = !paused;
+      hudStatus.textContent = paused ? '⏸ Paused' : '  ️ Go!';
+      overlay.classList.toggle('visible', paused);
+      try {
+        if (paused) { engineSound.pause(); bgMusic.pause(); }
+        else { engineSound.play(); bgMusic.play(); }
+      } catch {}
+    }
+
+    // Buttons
+    playBtn.addEventListener('click', start);
+    howBtn.addEventListener('click', () => alert('How to play:\n• Move lanes with A/D or ←/→ (tap ◀/▶ on mobile).\n• Accelerate with W/↑ (tap ↑) and brake with S/↓.\n• Avoid traffic, rack up score with distance.\n• P = pause, R = restart.\n\nNiveles:\n- Nivel 1: 2000 puntos\n- Nivel 2: 4000 puntos\n- Nivel 3: 6000 puntos\n- Nivel 4: 8000 puntos\n- Nivel 5: 10000 puntos\n\nTip: Speed increases over time!'));
+    restartBtn.addEventListener('click', restart);
+    menuBtn.addEventListener('click', () => { gameover.classList.add('hidden'); menu.classList.remove('hidden'); overlay.classList.remove('visible'); hudStatus.textContent='   Ready'; });
+
+    // Resize
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // Kick loop
+    requestAnimationFrame(loop);
+  });
+  </script>
+</body>
+</html>
