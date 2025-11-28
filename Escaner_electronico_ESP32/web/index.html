@@ -1,0 +1,312 @@
+<?php
+// index.php
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Resultados de Escaneo BLE - ESP32</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #020617);
+            color: #111827;
+        }
+        .page {
+            max-width: 1100px;
+            margin: 30px auto;
+            background: #f9fafb;
+            border-radius: 18px;
+            padding: 30px 35px 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+        }
+        h1, h2, h3 {
+            margin: 0;
+            text-align: center;
+        }
+        h1 {
+            font-size: 28px;
+            letter-spacing: 1px;
+            color: #111827;
+        }
+        .subtitle {
+            margin-top: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1d4ed8;
+        }
+        .subsubtitle {
+            margin-top: 4px;
+            font-size: 14px;
+            color: #4b5563;
+        }
+        .curso {
+            margin-top: 18px;
+            font-size: 15px;
+            text-align: center;
+        }
+        .curso span {
+            font-weight: 700;
+        }
+        .integrantes {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .integrantes strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 15px;
+        }
+        .integrantes div { line-height: 1.4; }
+
+        .descripcion {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 14px;
+            color: #374151;
+        }
+
+        .card {
+            margin-top: 30px;
+            background: #0b1120;
+            color: #e5e7eb;
+            border-radius: 14px;
+            padding: 18px 18px 10px;
+            box-shadow: 0 12px 25px rgba(15,23,42,0.9);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .card-subtitle {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 2px;
+        }
+
+        .btn {
+            background: #2563eb;
+            border: none;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 6px 15px rgba(37,99,235,0.5);
+            transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(37,99,235,0.55);
+        }
+        .btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 4px 10px rgba(37,99,235,0.4);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+        th, td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid rgba(55,65,81,0.5);
+        }
+        th {
+            background: rgba(15,23,42,0.95);
+            color: #f9fafb;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        tbody tr:nth-child(even) {
+            background: rgba(15,23,42,0.7);
+        }
+        tbody tr:nth-child(odd) {
+            background: rgba(15,23,42,0.85);
+        }
+        .empty-row td {
+            text-align: center;
+            padding: 15px 10px;
+            color: #9ca3af;
+        }
+        .footer-note {
+            margin-top: 18px;
+            font-size: 11px;
+            text-align: right;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <h1>Universidad Nacional San Antonio Abad del Cusco</h1>
+    <div class="subtitle">Resultados de Escaneo BLE - ESP32</div>
+    <div class="subsubtitle">Escaneo de dispositivos electrónicos vía Bluetooth Low Energy</div>
+
+    <div class="curso">
+        <span>Curso:</span> Sistemas Embebidos
+    </div>
+
+    <div class="integrantes">
+        <strong>Integrantes:</strong>
+        <div>Alex Berrios Thea - 215781</div>
+        <div>Flor Deliz Ccasa Ccahuana - 210922</div>
+    </div>
+
+    <p class="descripcion">
+        Los datos se reciben desde el ESP32, se procesan (RSSI → distancia estimada) y se almacenan en MySQL en el servidor Ubuntu.
+    </p>
+
+    <!-- CARD BLE -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <div class="card-title">Dispositivos BLE detectados</div>
+                <div class="card-subtitle">Tabla: <span style="color:#93c5fd">measurements</span></div>
+            </div>
+            <button class="btn" onclick="cargarBLE()">Actualizar BLE</button>
+        </div>
+        <div style="overflow:auto; max-height:260px;">
+            <table>
+                <thead>
+                <tr>
+                    <th>MAC</th>
+                    <th>Nombre</th>
+                    <th>RSSI (dBm)</th>
+                    <th>Distancia (m)</th>
+                    <th>Fecha / Hora</th>
+                </tr>
+                </thead>
+                <tbody id="tabla-ble">
+                <tr class="empty-row"><td colspan="5">Sin datos todavía…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CARD WIFI -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <div class="card-title">Redes Wi-Fi detectadas</div>
+                <div class="card-subtitle">Tabla: <span style="color:#93c5fd">wifi_measurements</span></div>
+            </div>
+            <button class="btn" onclick="cargarWiFi()">Actualizar Wi-Fi</button>
+        </div>
+        <div style="overflow:auto; max-height:260px;">
+            <table>
+                <thead>
+                <tr>
+                    <th>SSID</th>
+                    <th>BSSID (MAC)</th>
+                    <th>RSSI (dBm)</th>
+                    <th>Canal</th>
+                    <th>Enc</th>
+                    <th>Distancia (m)</th>
+                    <th>Fecha / Hora</th>
+                </tr>
+                </thead>
+                <tbody id="tabla-wifi">
+                <tr class="empty-row"><td colspan="7">Sin datos todavía…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="footer-note">
+        Actualización automática cada 10 segundos.
+    </div>
+</div>
+
+<script>
+function cargarBLE() {
+    fetch('get_measurements.php')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('tabla-ble');
+            tbody.innerHTML = '';
+
+            if (!Array.isArray(data) || data.length === 0) {
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Sin datos en la tabla measurements.</td></tr>';
+                return;
+            }
+
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.deviceMac}</td>
+                    <td>${row.name}</td>
+                    <td>${row.rssi}</td>
+                    <td>${parseFloat(row.distance_m).toFixed(2)}</td>
+                    <td>${row.timestamp}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            const tbody = document.getElementById('tabla-ble');
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Error al obtener datos del servidor.</td></tr>';
+        });
+}
+
+function cargarWiFi() {
+    fetch('get_wifi.php')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('tabla-wifi');
+            tbody.innerHTML = '';
+
+            if (!Array.isArray(data) || data.length === 0) {
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Sin datos en la tabla wifi_measurements.</td></tr>';
+                return;
+            }
+
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.ssid}</td>
+                    <td>${row.bssid}</td>
+                    <td>${row.rssi}</td>
+                    <td>${row.channel}</td>
+                    <td>${row.enc}</td>
+                    <td>${parseFloat(row.distance_m).toFixed(2)}</td>
+                    <td>${row.timestamp}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            const tbody = document.getElementById('tabla-wifi');
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Error al obtener datos del servidor.</td></tr>';
+        });
+}
+
+// Auto-refresh cada 10 s
+setInterval(cargarBLE, 10000);
+setInterval(cargarWiFi, 10000);
+
+// Primeras cargas al abrir
+cargarBLE();
+cargarWiFi();
+</script>
+</body>
+</html>
+
