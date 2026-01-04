@@ -40,28 +40,28 @@ Sigue estos pasos para replicar el proyecto en un entorno local o en la nube (AW
 git clone [https://github.com/Alumno3000/IF556AIN.git](https://github.com/Alumno3000/IF556AIN.git)
 cd IF556AIN/Proyecto_Scraper
 
-2. Configurar el Entorno Virtual
+### 2. Configurar el Entorno Virtual
 Es recomendable usar un entorno aislado para las dependencias.
 
 sudo apt update && sudo apt install python3-venv -y
 python3 -m venv venv
 source venv/bin/activate
 
-3. Instalar Dependencias
-
+### 3. Instalar Dependencias
 
 pip install fastapi uvicorn requests beautifulsoup4 openai googlesearch-python jinja2
-4. Configuración Crítica (API Key)
+
+### 4. Configuración Crítica (API Key)
 El sistema requiere una clave de API gratuita de Groq Cloud para funcionar.
 
 Abre el archivo scraper_engine.py.
 
 Localiza la variable API_KEY y pega tu clave:
 
-Python
 
 API_KEY = "gsk_TU_CLAVE_AQUI..."
-5. Estructura de Directorios
+
+### 5. Estructura de Directorios
 Asegúrate de que el archivo index.html se encuentre dentro de la carpeta templates/ para que FastAPI lo reconozca.
 
 mkdir -p templates
