@@ -38,6 +38,7 @@ Sigue estos pasos para replicar el proyecto en un entorno local o en la nube (AW
 ### 1. Clonar el Repositorio
 
 git clone [https://github.com/Alumno3000/IF556AIN.git](https://github.com/Alumno3000/IF556AIN.git)
+
 cd IF556AIN/Proyecto_Scraper
 
 ### 2. Configurar el Entorno Virtual
